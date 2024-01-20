@@ -1,0 +1,204 @@
+#This code contains a detailed description of it, to better understand how it works
+#for the socket
+import socket
+#for the random number that will be generated
+import random
+#for the calculation of rtt
+import time
+#for the inclusion of background music in the game and sound effects
+import winsound
+
+#creating the socket and binding it to the IP of the device, and to a random port of my choice which is 8000
+server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server_socket.bind(('localhost', 8000))
+#choosing background music to be elevator music because it's entertaining, starting it in the beginning of the server's code
+#the use of winsound.SND_FILENAME is the typical syntax to start the audio with the name "elevatorMusic" which is saved in the same directory as the
+#server file, and the winsound.SND_ASYNC, is used to play this music in parallel while the program is running.
+winsound.PlaySound("elevatorMusic.wav", winsound.SND_FILENAME | winsound.SND_ASYNC)
+#the server gives the option of any amount of players to play this game, this input will decide the number in the "listen" function
+player_number = input("How many players would like to play? \n")
+player_number = int(player_number)
+print("Okay, waiting for ", player_number, " players to join\n")
+
+server_socket.listen(player_number)
+#initializing 2 empty lists: one for the player's sockets, and one for the names of the players
+
+players = []
+names = []
+#creates n sockets, with n = number of players
+for i in range(player_number):
+    t = i
+    i = str(i+1)
+    c = "client" + i
+    a = "address" + i
+    c, a = server_socket.accept()
+    players.append(c)
+    #waits to receive the name of the player
+    name = c.recv(4096).decode()
+    #appends the name of the player to the names list
+    #note that the names and players (containing sockets) will be adjacent to each other
+    names.append(name)
+    #shows the player who's joined
+    print(f"{names[t]} has joined\n")
+    #declares that it's waiting for more players, n-1 times, this message won't show when the last player enters.
+    if t < player_number - 1:
+        print("Waiting for more players\n")
+
+#this function will implement one round for a player, which is why it takes the socket as an input, and also the random number generated in the main function
+def round(player, number):
+    #empty list that will store the player's response details
+    L = []
+    #turning the number generated into string to be able to send it to the client
+    num = str(number)
+    #starting timer to calculate RTT
+    start = time.time()
+    player.send(num.encode())
+    response = player.recv(4096).decode()
+    #ending timer just after receiving the response from the player
+    end = time.time()
+    rtt = end - start
+    #turning response to int to compare it with the number later
+    response = int(response)
+    #adding to L in order to return a list that has [reponse of player, rtt]
+    L.append(response)
+    L.append(rtt)
+    return L
+
+#this function is for: after implementing the "round" function on each player, this function will do comparisons and at the end compute the winner of the round
+#this function takes a list of all RTTs of each player (adjacently to their sockets), a list of their reponses, the random number,the list
+#of names of the players, and the list of sockets.
+def who_won_this_round(rtt_list, response_list, number, names, players):
+    #creating an empty list that will save the scores of each player and adjacently
+    score = []
+    #starting min at a high number in order to compare and eventually get the min of the rtt list
+    min = 100000
+    #all lists are of the same size so len(rtt_list) works
+    for i in range(len(rtt_list)):
+        #initializing all scores to be 0
+        score.append(0)
+        #if the response is the actual number, then that means there's a chance the response has the smallest rtt, so we can start the comparisons
+        if response_list[i] == number:
+            #we compute the minimum rtt 
+            if rtt_list[i] < min:
+                min = rtt_list[i]
+    #looping over all RTTs, to see which index has the min rtt, then incrementing the corresponding score at the corresponding index
+    for i in range(len(rtt_list)):
+        if min == rtt_list[i]:
+            score[i] = score[i] + 1
+            #since we have the index of the winning score of this round, we send for all players the name of winner, which is at this index too
+            m = f"{names[i]} wins this round!\n"
+            for i in players:
+                i.send(m.encode())
+            #returns the list containing all the scores of this round (one of them will be incremented)
+            return score
+    #in the case where none of the responses are the same as the number generated, the if condition in the for loop above will never be satisfied
+    #so the following loop resolves this case (where no one wins the round)
+    for i in players:
+        i.send("No one wins this round".encode())
+    return score
+
+#this is the main function
+def game(players, names):
+    #initializing a scores list thats empty first
+    score = []
+    for i in range(len(players)):
+        #making this list all 0 in the beginning
+        score.append(0)
+    p = 0
+    #loop 3 times for 3 rounds
+    while p < 3:
+        #this loop is to make a delay in the code so the number reaches the first player 3 seconds later, so that they have the chance to be ready
+        for i in range(3,0,-1):
+            time.sleep(1)
+        #generate random num between 0 and 9
+        number = random.randint(0, 9)
+        #initialize 2 empty lists, one that will adjacently store the RTTs of all the player, and the other that will do the same but with their responses
+        RTT = []
+        ANSWERS = []
+        n = len(players)
+        #we can loop over n if we wish since all lists in the code are adjacent with same size
+        for i in players:
+            #the try except functions are to handle the error of "players suddenly disconnecting"
+            try:
+                #resp_and_rtt is a 2 element List returned from "round" function
+                resp_and_rtt = round(i, number)
+                ANSWERS.append(resp_and_rtt[0])
+                RTT.append(resp_and_rtt[1])
+                
+            #in the case where the error occurs
+            except:
+                for j in players:
+                    if j != i:
+                        j.send("The game has ended due to a player randomly disconnecting".encode())
+                        print("The game has ended due to a player randomly disconnecting!")
+                        players.remove(i)
+                        return
+            
+            
+            
+        #score_list will be the lsit showing the score of one round only
+        score_list = who_won_this_round(RTT, ANSWERS, number, names, players)
+        #loop over the elements of score and score_list, and add them together, to get the cumulative score
+        for i in range(n):
+            a = score_list[i]
+            score[i] = score[i] + a
+
+        N = names.copy()
+        # creates a list of tuples containing the names and scores
+        P = list(zip(N, score))
+        # sort the list of tuples based on the scores in descending order
+        sorted_players = sorted(P, key=lambda x: x[1], reverse=True)
+        # loop through the sorted list and display the leaderboar
+        print(f"Round {p+1}")
+        print("Leaderboard:")
+        y = 0
+        for i, P in enumerate(sorted_players):
+            print(f"{i+1}. {P[0]}: {P[1]} with a total time of {RTT[y]} seconds")
+            y = y+1
+        print("\n")
+
+        #2 second delay to match that of the 2 second delay in the UI
+        for i in range(2, 0, -1):
+                time.sleep(1)
+
+        p += 1
+    #at the end of 3 rounds, get the max score between all scores
+    max = score[0]
+    for i in range(n):
+        if score[i] > max:
+            max = score[i]
+    #compute the index of the player with the highest score and their names
+    for i in range(len(score)):
+        if score[i] == max:
+            a = names[i]
+            e = i
+    #in the case where all the players have the same score (which is quite rare, but what if all players put wrong inputs?)
+    boolean = all(x == score[0] for x in score)
+    if boolean == True:
+        print("The game is tied between all players! How disappointing D;")
+        #in this case, the players will see that no one wins
+        return "No one"
+    else:
+        #message naming the player who won
+        print(f"We have a WINNER! {a} wins! With a score of {score[e]} out of 3")
+        #return the name of the winner
+        return a
+    
+
+    
+#winner = name of the person who won
+winner = game(players,names)
+#Announce the winner to all the players and then close all their sockets
+for i in players:
+        m = f"{winner} wins!"
+        i.sendall(m.encode())
+        #closing all sockets of players
+        i.close()
+#plays "end of the game" sound which is funny
+winsound.PlaySound("gameOver.wav",winsound.SND_FILENAME)
+server_socket.close()
+
+#note: during the making of this project, we used many resources, YouTube and websites like stackoverflow to learn new concepts
+#in coding, like the UI for example, and the use of sound effects.
+#we also used chatgpt to help us get better understandings of how these new concepts logically work, and to help us debug
+#our code and teach us how to fix unprecedented errors
