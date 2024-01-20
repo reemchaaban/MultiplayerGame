@@ -1,0 +1,221 @@
+#library for the GUI
+import tkinter as tk
+import socket
+import time
+import winsound
+import os
+from PIL import Image, ImageTk
+import threading
+#made the GUI as a class, to be able to define many functions and call them on widgets in the UI
+class GUI:
+    #init function, to create the main form of the window
+    def __init__(self, origin):
+        #setting the origin attribute of the GUI object, to that passed in the argument
+        self.origin = origin
+        #title of the window and size
+        origin.title("Who's the fastest typer?")
+        origin.geometry("550x480")
+        #list of colors as code, so that we can change colors later in the game
+        self.bg = ["#ff9999", "#99ff99", "#9999ff", "#ffff99", "#99ffff"]
+        #self.current will be used to iterate over the list
+        self.color = -1
+        self.color2 = -1
+        #create a label to display the welcome message in it, origin means we display in the window, text is to write what
+        #we want to display, foreground is to change the color and font is to edit the font and its size
+        self.label = tk.Label(origin, text="Welcome to the fastest typer game!",foreground = "black",font =("Ariel",24))
+        #pack it into the window
+        self.label.pack()
+        #another label that asks the player to enter their name
+        self.name = tk.Label(origin, text="Enter your name:",font=("Times New Roman",20))
+        self.name.pack()
+        #and entry widget that allows the player to type an input into it, and will be used to enter the name
+        self.n_entered = tk.Entry(origin)
+        self.n_entered.pack()
+        #a button that says "start game", and when pressed, it will take us to the function begin which takes "self" as argument
+        self.start = tk.Button(origin, text="Start Game", command=self.begin)
+        self.start.pack()
+        #an initally empty label, that will be later used to display the result in it
+        self.result = tk.Label(origin, text="")
+        self.result.pack()
+        #a function or protocol, that is built in the tkinter library, and checks if the ui is closed, and if so, it will take
+        #us to the "closed" function thats defined below
+        self.origin.protocol("WM_DELETE_WINDOW", lambda: self.closed())
+        gif_file = r"video\video.gif"
+        gif = Image.open(gif_file)
+
+        #now we want to add syntax to add a gif to make it look nice
+        #create empty list to put frames in it
+        self.frames = []
+        for frame in range(gif.n_frames):
+            gif.seek(frame)
+            #add the frames of the gif in the list
+            self.frames.append(ImageTk.PhotoImage(gif))
+
+        #create a label to display the gif in it
+        self.label2 = tk.Label(self.origin)
+        #use threading to play the gif in parallel with the rest of the code
+        thread = threading.Thread(target=self.update_label(0))
+        thread.start()
+    #function to play the frames of the gif in the label we created
+    def update_label(self,frame):
+        self.label2.configure(image=self.frames[frame])
+        #every 100 milliseconds, a frame will play from the frames list
+        self.origin.after(100, self.update_label, (frame+1) % len(self.frames))
+        #pack the gif in the label created
+        self.label2.pack()
+    
+
+
+    def closed(self):
+        #in the case the UI is closed, the cmd will print "application closed" and the object of the GUI will be destroyed
+        #also the socket of the player will close
+        print("Application closed.")
+        
+        #destroy any windows that are children to the root (origin)
+        for i in self.origin.winfo_children():
+            i.destroy()
+            
+        #destroy the origin window
+        self.origin.destroy()
+        
+        #exit the program (and in out case ends the cmd command)
+        os._exit(0)
+
+        
+    
+        
+    def begin(self):
+        #when the start buttong is pressed, the function will execute, the player will connect to the server through a 
+        #created socket
+        #the name that was input in the entry box, will be extracted and stored as the variable "name", and sent to the server
+        #so that the server can save it
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.connect(('localhost', 8000))
+        name = self.n_entered.get()
+        self.socket.sendall(name.encode())
+        #once these steps are done, we call the game function defined below, with self as argument
+        self.game()
+
+    def game(self):
+        #remove or hide the labels "star, name, and n_entered" that were created above
+        self.start.pack_forget()
+        self.name.pack_forget()
+        self.n_entered.pack_forget()
+        
+        
+        for i in range(3):
+            #remove the result label as well to make the UI look neat
+            self.result.pack_forget()
+            #since all other labels are removed, theres only the "label" label still left, so it will be used to display
+            # the message that tells the player to stay ready, as the 3 second delay will occur
+            #we use update function to update the new text in the label, rather than keep the old one
+            self.label.config(text="Round starting soon! BE READY!")
+            
+            self.origin.update()               
+            for i in range(3, 0, -1):
+                time.sleep(1)
+            
+            #receive number from the server
+            number = self.socket.recv(4096).decode()
+            #if the received number is a string that says that the player disconnected instead, we remove all labels
+            #and keep the result label that displays the error message, and then we close the socket
+            m = "The game has ended due to a player randomly disconnecting"
+            #when a player closes the game , the server sends a message as a string, obviously the message will have a length longer than that
+            #of the string if it were the random number, which will have a length 1, so we're checking for this case and working accordingly
+            if len(number) != 1:
+                self.start.pack_forget()
+                self.name.pack_forget()
+                self.n_entered.pack_forget()
+                self.label.pack_forget()              
+                self.result.pack()
+                self.result.config(text=m)
+                self.socket.close()
+                return
+                
+            #in case of no error, we display the number that needs to be entered in the "label" label and we do it by editing
+            #the text and updating the origin just like before
+            self.label.config(text=f"The number is: {number}")
+            self.origin.update()
+            #change background color (to make it more fun)
+            #everytime we want to press the submit button, we want to change the background color
+            #this is like a function to choose the next index in the bg list, where we will get a new color
+            self.color = (self.color + 1) % len(self.bg)
+
+            #create a new frame for the input and submit button
+            #a frame can store more than one widget all together, so in the frame we created, we insert in it 
+            #a label that asks to enter the answer, an entry box where the player puts an input and a button to submit the answer
+            #and this button will call the function defined below which is submit_answer
+            self.input_frame = tk.Frame(self.origin)
+            self.input_frame.config(bg = self.bg[self.color])
+            self.input_frame.pack()
+            #the tk.LEFT syntax allows us to display these widgets from left to right
+            #in this code, i'm setting all labels background colors to be the same color as the background color of the window, so that the labels look more neat
+            self.answer_label = tk.Label(self.input_frame, text="Enter your answer:")
+            self.answer_label.pack(side=tk.LEFT)
+            self.color2 = (self.color2 +i +1) % len(self.bg)
+            self.answer_entry = tk.Entry(self.input_frame)
+            self.answer_entry.config(bg =self.bg[self.color2] )
+            self.answer_entry.pack(side=tk.LEFT)
+
+            self.submit_button = tk.Button(self.input_frame, text="Submit", command=self.submit_answer)
+            self.submit_button.pack(side=tk.LEFT)
+            #the submit_answer function is supposed to extract the input that was put by the player in the box
+
+            
+            #we update the code of the new color, in the bg of the origin
+            self.label.config(bg = self.bg[self.color])
+            self.origin.config(bg=self.bg[self.color])
+
+            #wait for the player to enter an answer and click the submit button
+            #self.answer will initally be nothing, and it will change when the player calls the submit_answer function which
+            #extracts a new "self.answer" so until it changes, we keep running a loop just to wait for the player to press the button
+            self.answer = None
+            while not self.answer:
+                self.origin.update()
+
+            #send the player's answer to the server
+            self.socket.sendall(self.answer.encode())
+
+
+            #wait for the result from the server and display it in the UI
+            #since we want to display the result back, we will need to return the result label that we removed earlier
+            #so we do that by packing it again
+            self.result.pack()
+            self.result.config(bg=self.bg[self.color])
+            result = self.socket.recv(4096).decode()
+            #after receiving, we want to display the result, so we update the text in the result label
+            self.result.config(text=result,font=("Ariel",15))
+            self.origin.update()
+            
+            #if the player wins, play a sound effect
+            result2 = result.split()
+            if result2[0] == self.n_entered.get():
+                winsound.PlaySound("winner.wav", winsound.SND_FILENAME | winsound.SND_ASYNC)
+            #a delay of 2 seconds so that the players see the result of who won, before starting the next round which will
+            #remove the result label all over again (check beginning of loop)
+            for i in range(2, 0, -1):
+                time.sleep(1)
+            #remove the input frame and reset the answer to none
+            self.input_frame.pack_forget()
+            self.answer = None
+        #show "Game Over" label and close the socket
+        self.answer_label.pack_forget()
+        self.answer_entry.pack_forget()
+        self.submit_button.pack_forget()
+        self.label.config(text="Game Over")
+        self.origin.update()
+        #receives final result from server of who won the entire game and displays it in the result label
+        final = self.socket.recv(4096).decode()
+        self.result.config(text=final,font =( "Ariel",15))
+        self.socket.close()
+    #submit_answer function that extracts the input made by the player in the entry box, after pressing the submit button, and
+    #stores what was extracted in the self.answer variable
+    def submit_answer(self):
+        self.answer = self.answer_entry.get()
+
+#create the window of the UI
+root = tk.Tk()
+#create the GUI object and pass the tk as its argument
+my_gui = GUI(root)
+#start the loop event: basically it waits for events that correspond the object, such as pressing a button or inputting something
+root.mainloop()
